@@ -1,0 +1,123 @@
+see how many lines of code adding in _IO files would contribute
+
+
+
+
+need to add ploidy so that 
+
+everything is up to date but now I am not inserting the top solution
+
+
+up to updating insert_node_under_complement
+
+need to updat emodel so that we explore several p_up and p_down values around each center
+need to fix up run model    checks to see if the trees are similar
+need to work out what is taking so long for some samples to run - if it is particular things then we need to remove difficult solutions?
+can potentially speed up the model by caching the trees and timings and BP_liklihoods for CN SNV combinations. There aren't actually that many and this is probably the bottle neck of the algorithm especially for the more complicated solutions
+
+
+tree_flexibility isn't meshed with do all and run_build trees
+
+need to store the indicidual SNV loglikelihoods for monitoring and evaluation. They are overwhelmingly contributing to the model result and its not super clear why
+
+pretty sure the paths created in branch lengths isn't working. the last epoch is ignored always.
+change run_build_trees_and_timings.py or rather factor it into two new files run_build_trees.py and run_list_timings.py and run_individual_path_likelihoods.py 
+
+continue to check test cases from calculate_BP_paths_io_log.txt onwards
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+I am constantly solving the same problem over and over and over again. trees are being made over and over again even though I am constantly repeating them. It would be good to have a database of the timings, branch_lengths, stacked_branch_lengths for every tree and max_epoch combi
+    nation. I would like to save this to a database and update the database everytime a tree is not in it. What is a good python library to implement this with given that theree will be many ptyhon programs potentially trying to access and update this database at the same time. can you also give me example code about how to load the database and update it?
+
+it sounds like sqllite is a good choice
+ChatGPT
+Yes, SQLite is a good choice for this task. SQLite is a C library that provides a lightweight disk-based database. It doesn't require a separate server process and allows accessing the database using a nonstandard variant of the SQL query language. Some applications can use SQLite for internal data storage. It's also possible to prototype an application using SQLite and then port the code to a larger system such as PostgreSQL or Oracle.
+
+Python has built-in support for SQLite in the sqlite3 module. Here's a simple example of how you might use it to store and retrieve your tree data:
+
+python
+Copy code
+import sqlite3
+from sqlite3 import Error
+
+def create_connection():
+    conn = None;
+    try:
+        conn = sqlite3.connect(':memory:') # creates a RAM database for testing, replace with 'test.db' for a disk-based one
+        print(sqlite3.version)
+    except Error as e:
+        print(e)
+    return conn
+
+def create_table(conn):
+    try:
+        sql_create_tree_table = """ CREATE TABLE IF NOT EXISTS trees (
+                                        id integer PRIMARY KEY,
+                                        timings text NOT NULL,
+                                        branch_lengths text NOT NULL,
+                                        stacked_branch_lengths text NOT NULL,
+                                        max_epoch integer NOT NULL
+                                    ); """
+        c = conn.cursor()
+        c.execute(sql_create_tree_table)
+    except Error as e:
+        print(e)
+
+def insert_tree(conn, tree):
+    sql = ''' INSERT INTO trees(timings,branch_lengths,stacked_branch_lengths,max_epoch)
+              VALUES(?,?,?,?) '''
+    cur = conn.cursor()
+    cur.execute(sql, tree)
+    return cur.lastrowid
+
+def select_all_trees(conn):
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM trees")
+    rows = cur.fetchall()
+    for row in rows:
+        print(row)
+
+def main():
+    database = r"pythonsqlite.db" # replace with your database path
+
+    # create a database connection
+    conn = create_connection(database)
+
+    if conn is not None:
+        # create trees table
+        create_table(conn)
+    else:
+        print("Error! cannot create the database connection.")
+
+    with conn:
+        # insert a new tree
+        tree = ('timing1', 'branch_length1', 'stacked_branch_length1', 1)
+        tree_id = insert_tree(conn, tree)
+
+        # select all trees
+        print("All trees:")
+        select_all_trees(conn)
+
+if __name__ == '__main__':
+    main()
+This is a very basic example. In a real-world scenario, you would probably want to add more error checking, and you might want to add more functionality (like updating existing records, deleting records, etc.). You might also want to consider using a more sophisticated ORM (Object-Relational Mapping) library like SQLAlchemy, which can make it easier to work with databases in Python.
+
+Also, remember that SQLite is not designed for highly concurrent write-heavy applications. If you have many programs trying to write to the database at the same time, you might run into issues with database locking. If you anticipate needing to support a high level of concurrency, you might want to consider using a different database system, such as PostgreSQL or MySQL.
