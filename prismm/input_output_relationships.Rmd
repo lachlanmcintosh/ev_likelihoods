@@ -1,0 +1,168 @@
+---
+title: "Input-Output Relationships"
+output: pdf_document
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{caption}
+  - \usepackage{subcaption}
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tidyverse)
+library(GGally)
+opts_chunk$set(echo=TRUE, warning = FALSE, message = FALSE, fig.align = "center")
+```
+
+# Data Loading and Preprocessing
+
+```{r data_loading}
+# Read input data from CSV
+data <- read.table("simulation_summary.csv",
+                   header = TRUE, sep = ",")
+
+# Add the new "GD" column and convert Python booleans in path_in_* columns to R booleans
+data <- data %>%
+  mutate(GD = rowSums(cbind(pre > 0, mid > 0, post > 0)) + 1) %>%
+  mutate(across(starts_with("path_in_"), ~(. == "True"), .names = "{col}"))
+
+data <- data %>%
+  mutate(in_both = path_in_marginal_likelihoods & path_in_top_likelihoods,
+         in_marginal_exclusive = path_in_marginal_likelihoods & !path_in_top_likelihoods,
+         in_top_exclusive = !path_in_marginal_likelihoods & path_in_top_likelihoods)
+
+
+print(head(data))
+print(summary(data))
+print(str(data))
+
+```
+
+# Visualizing Input-Output Relationships
+
+The following plots show the relationships between different combinations of input parameters and output results.
+
+```{r plots_output_vs_input, fig.show='hold'}
+# Load necessary libraries
+library(ggplot2)
+
+# Function to calculate cumulative average for each input value
+cumulative_average <- function(x, y) {
+  cumsum(y) / seq_along(y)
+}
+
+# Visualizing Input-Output Relationships
+output_cols <- c("searchable_likelihoods_rank", "marginal_likelihoods_rank", "top_likelihoods_rank")
+input_cols <- c("max_number_of_solutions", "max_default_path_length", "prob_dist_filter", "path_length_diff", "pre", "mid", "post", "GD")
+
+for (output_col in output_cols) {
+  for (input_col in input_cols) {
+    data_summarized <- data %>%
+      filter(!is.na(!!sym(output_col))) %>%
+      arrange_at(input_col) %>%
+      group_by_at(input_col) %>%
+      summarize(cum_avg_path_in = mean(path_in_searchable_likelihoods, na.rm = TRUE),
+                cum_avg_rank = mean(!!sym(output_col), na.rm = TRUE),
+                .groups = 'drop')
+    
+    p <- ggplot(data_summarized, aes_string(input_col, "cum_avg_rank")) +
+      geom_line() +
+      labs(title = paste("Cumulative Average of", output_col, "vs", input_col),
+           x = input_col,
+           y = paste("Cumulative Average of", output_col)) +
+      theme_minimal()
+    print(p)
+  }
+}
+```
+
+```{r bar_plots_path_in, fig.show='hold'}
+input_cols <- c("max_number_of_solutions", "max_default_path_length", "prob_dist_filter", "path_length_diff")
+path_in_cols <- c("path_in_searchable_likelihoods", "path_in_marginal_likelihoods", "path_in_top_likelihoods")
+
+for (input_col in input_cols) {
+  for (path_in_col in path_in_cols) {
+    p <- ggplot(data, aes_string(input_col, fill = path_in_col)) +
+      geom_bar(position = "dodge") +
+      labs(title = paste(input_col, "vs", path_in_col),
+           x = input_col,
+           y = "Frequency",
+           fill = path_in_col) +
+      theme_minimal()
+    print(p)
+  }
+}
+```
+
+# Exploring Higher Dimensional Relationships
+
+In this section, we will explore higher-dimensional relationships between inputs and outputs using a combination of scatter plots and color scales.
+
+```{r scatter_matrix}
+scatter_matrix <- ggpairs(data[, c(input_cols, output_cols)])
+print(scatter_matrix)
+```
+
+```{r faceted_scatter_plots, fig.show='hold'}
+for (input_col1 in input_cols) {
+  for (input_col2 in input_cols) {
+    if (input_col1 != input_col2) {
+      for (output_col in output_cols) {
+        p <- ggplot(data, aes_string(input_col1, input_col2, col = output_col)) +
+          geom_point() +
+          labs(title = paste("Scatter Plot with", output_col, "as Color Scale"),
+               x = input_col1,
+               y = input_col2,
+               col = output_col) +
+          theme_minimal()
+        print(p)
+      }
+    }
+  }
+}
+```
+
+# Exploring the Hypothesis about Large Input Parameters
+
+In this section, we will create additional visualizations to explore the hypothesis that there is no additional benefit in getting the paths to be in the output and getting the rank higher once the input parameters are large enough.
+
+```{r heatmaps, fig.show='hold'}
+cutoff_quantile <- 0.75
+
+for (output_col in output_cols) {
+  for (input_col1 in input_cols) {
+    for (input_col2 in input_cols) {
+      if (input_col1 != input_col2) {
+        data_binned <- data %>%
+          mutate(across(c(input_col1, input_col2),
+                ~{
+                  breaks <- seq(min(.x, na.rm = TRUE), max(.x, na.rm = TRUE), length.out = 6)
+                  cut(.x, breaks = breaks)
+                  }, .names = "bin_5_{.col}")) %>%
+          group_by(across(starts_with("bin_5_"))) %>%
+          summarize(count = n(),
+            mean_rank = mean(!!sym(output_col), na.rm = TRUE),
+            .groups = "drop")
+        
+        p <- ggplot(data_binned, aes_string(paste0("bin_5_", input_col1), paste0("bin_5_", input_col2))) +
+          geom_tile(aes(fill = mean_rank)) +
+          geom_text(aes(label = round(mean_rank, 2), size = count,
+                        col = ifelse(count > quantile(count, cutoff_quantile), "white", "black"))) +
+          scale_fill_gradient(low = "white", high = "red") +
+          labs(title = paste("Heatmap of Mean", output_col, "by Binned", input_col1, "and", input_col2),
+               x = input_col1,
+               y = input_col2,
+               fill = paste("Mean", output_col),
+               color = "Text Color") +
+          theme_minimal() +
+          theme(legend.position = "bottom")
+        
+        print(p)
+      }
+    }
+  }
+}
+```
+
+
+
